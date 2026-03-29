@@ -223,6 +223,53 @@ class BSBIIndex:
             docs = [(score, self.doc_id_map[doc_id]) for (doc_id, score) in scores.items()]
             return sorted(docs, key = lambda x: x[0], reverse = True)[:k]
 
+    def retrieve_bm25(self, query, k = 10, k1 = 1.2, b = 0.75):
+        """
+        Ranked Retrieval dengan BM25 (Term-at-a-Time).
+
+        Score = sum_{t in Q} IDF(t) * ((tf * (k1 + 1)) /
+                                       (tf + k1 * (1 - b + b * (dl / avgdl))))
+
+        IDF(t) = log((N - df + 0.5) / (df + 0.5))
+
+        Parameters
+        ----------
+        query: str
+            Query tokens dipisahkan spasi
+        k: int
+            Top-K hasil
+        k1: float
+            Parameter BM25
+        b: float
+            Parameter BM25
+        """
+        if len(self.term_id_map) == 0 or len(self.doc_id_map) == 0:
+            self.load()
+
+        terms = [self.term_id_map[word] for word in query.split()]
+        with InvertedIndexReader(self.index_name, self.postings_encoding, directory=self.output_dir) as merged_index:
+
+            N = len(merged_index.doc_length)
+            avgdl = merged_index.avg_doc_length if N > 0 else 0.0
+
+            scores = {}
+            for term in terms:
+                if term in merged_index.postings_dict:
+                    df = merged_index.postings_dict[term][1]
+                    idf = math.log((N - df + 0.5) / (df + 0.5)) if N > 0 else 0.0
+                    postings, tf_list = merged_index.get_postings_list(term)
+                    for i in range(len(postings)):
+                        doc_id, tf = postings[i], tf_list[i]
+                        dl = merged_index.doc_length.get(doc_id, 0)
+                        denom = tf + k1 * (1 - b + b * (dl / avgdl)) if avgdl > 0 else tf + k1
+                        score = idf * ((tf * (k1 + 1)) / denom) if denom != 0 else 0.0
+                        if doc_id not in scores:
+                            scores[doc_id] = 0.0
+                        scores[doc_id] += score
+
+            docs = [(score, self.doc_id_map[doc_id]) for (doc_id, score) in scores.items()]
+            return sorted(docs, key = lambda x: x[0], reverse = True)[:k]
+
     def index(self):
         """
         Base indexing code
