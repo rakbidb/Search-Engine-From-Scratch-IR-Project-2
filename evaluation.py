@@ -1,4 +1,5 @@
 import re
+import math
 from bsbi import BSBIIndex
 from compression import VBEPostings
 
@@ -27,6 +28,42 @@ def rbp(ranking, p = 0.8):
     pos = i - 1
     score += ranking[pos] * (p ** (i - 1))
   return (1 - p) * score
+
+# DCG, NDCG, and AP Metrics
+
+def dcg(ranking):
+  """
+    Discounted Cumulative Gain (DCG) untuk ranking biner.
+  """
+  score = 0.0
+  for i in range(1, len(ranking) + 1):
+    rel = ranking[i - 1]
+    score += rel / math.log2(i + 1)
+  return score
+
+def ndcg(ranking):
+  """
+    Normalized DCG (NDCG) untuk ranking biner.
+  """
+  ideal = sorted(ranking, reverse = True)
+  idcg = dcg(ideal)
+  if idcg == 0:
+    return 0.0
+  return dcg(ranking) / idcg
+
+def ap(ranking, total_relevant):
+  """
+    Average Precision (AP) untuk ranking biner.
+  """
+  if total_relevant == 0:
+    return 0.0
+  hit = 0
+  sum_prec = 0.0
+  for i in range(1, len(ranking) + 1):
+    if ranking[i - 1] == 1:
+      hit += 1
+      sum_prec += hit / i
+  return sum_prec / total_relevant
 
 
 ######## >>>>> memuat qrels
@@ -65,6 +102,9 @@ def eval(qrels, query_file = "queries.txt", k = 1000):
 
   with open(query_file) as file:
     rbp_scores = []
+    dcg_scores = []
+    ndcg_scores = []
+    ap_scores = []
     for qline in file:
       parts = qline.strip().split()
       qid = parts[0]
@@ -77,9 +117,16 @@ def eval(qrels, query_file = "queries.txt", k = 1000):
           did = int(re.search(r'\/.*\/.*\/(.*)\.txt', doc).group(1))
           ranking.append(qrels[qid][did])
       rbp_scores.append(rbp(ranking))
+      dcg_scores.append(dcg(ranking))
+      ndcg_scores.append(ndcg(ranking))
+      total_rel = sum(qrels[qid].values())
+      ap_scores.append(ap(ranking, total_rel))
 
   print("Hasil evaluasi TF-IDF terhadap 30 queries")
   print("RBP score =", sum(rbp_scores) / len(rbp_scores))
+  print("DCG score =", sum(dcg_scores) / len(dcg_scores))
+  print("NDCG score =", sum(ndcg_scores) / len(ndcg_scores))
+  print("AP score =", sum(ap_scores) / len(ap_scores))
 
 if __name__ == '__main__':
   qrels = load_qrels()
