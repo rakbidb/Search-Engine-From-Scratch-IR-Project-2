@@ -42,3 +42,30 @@ The implementation lives in `compression.py` as `EliasGammaPostings`:
 Pipeline integration:
 - `bsbi.py` and `search.py` import `EliasGammaPostings` and include a short note on how to switch to it.
 - Default remains `VBEPostings` (unchanged), so to try Elias-Gamma just set `postings_encoding=EliasGammaPostings`.
+
+# Answer Q2 - BM25 Scoring
+
+## Algorithm
+I implemented **BM25** scoring with the standard formula:
+
+Score(D, Q) = sum over query terms t of:
+
+- IDF(t) = log((N - df + 0.5) / (df + 0.5))
+- BM25 term weight = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (dl / avgdl)))
+
+where:
+- N = number of documents
+- df = document frequency for term t
+- tf = term frequency of t in document D
+- dl = document length of D (number of tokens)
+- avgdl = average document length across the collection
+
+## Implementation in This Codebase
+Pre-computation and storage:
+- During indexing, `doc_length` is already accumulated in `InvertedIndexWriter.append(...)`.
+- I added `avg_doc_length` to the index metadata and store it in the same pickle file as `postings_dict`, `terms`, and `doc_length`.
+- On load, the code is backward compatible: if the old metadata format is found, `avg_doc_length` is computed on the fly.
+
+Retrieval:
+- Implemented `retrieve_bm25(...)` in `bsbi.py` using Term-at-a-Time scoring.
+- It reads `doc_length` and `avg_doc_length` from the index metadata, computes IDF from `postings_dict`, and scores each document.
