@@ -220,23 +220,24 @@ class InvertedIndexWriter(InvertedIndex):
 
 if __name__ == "__main__":
 
-    from compression import VBEPostings
+    from compression import VBEPostings, EliasGammaPostings
 
-    with InvertedIndexWriter('test', postings_encoding=VBEPostings, directory='./tmp/') as index:
-        index.append(1, [2, 3, 4, 8, 10], [2, 4, 2, 3, 30])
-        index.append(2, [3, 4, 5], [34, 23, 56])
-        index.index_file.seek(0)
-        assert index.terms == [1,2], "terms salah"
-        assert index.doc_length == {2:2, 3:38, 4:25, 5:56, 8:3, 10:30}, "doc_length salah"
-        assert index.postings_dict == {1: (0, \
-                                           5, \
-                                           len(VBEPostings.encode([2,3,4,8,10])), \
-                                           len(VBEPostings.encode_tf([2,4,2,3,30]))),
-                                       2: (len(VBEPostings.encode([2,3,4,8,10])) + len(VBEPostings.encode_tf([2,4,2,3,30])), \
-                                           3, \
-                                           len(VBEPostings.encode([3,4,5])), \
-                                           len(VBEPostings.encode_tf([34,23,56])))}, "postings dictionary salah"
-        
-        index.index_file.seek(index.postings_dict[2][0])
-        assert VBEPostings.decode(index.index_file.read(len(VBEPostings.encode([3,4,5])))) == [3,4,5], "terdapat kesalahan"
-        assert VBEPostings.decode_tf(index.index_file.read(len(VBEPostings.encode_tf([34,23,56])))) == [34,23,56], "terdapat kesalahan"
+    for Postings in [VBEPostings, EliasGammaPostings]:
+        with InvertedIndexWriter('test', postings_encoding=Postings, directory='./tmp/') as index:
+            index.append(1, [2, 3, 4, 8, 10], [2, 4, 2, 3, 30])
+            index.append(2, [3, 4, 5], [34, 23, 56])
+            index.index_file.seek(0)
+            assert index.terms == [1,2], "terms salah"
+            assert index.doc_length == {2:2, 3:38, 4:25, 5:56, 8:3, 10:30}, "doc_length salah"
+            assert index.postings_dict == {1: (0, \
+                                               5, \
+                                               len(Postings.encode([2,3,4,8,10])), \
+                                               len(Postings.encode_tf([2,4,2,3,30]))),
+                                           2: (len(Postings.encode([2,3,4,8,10])) + len(Postings.encode_tf([2,4,2,3,30])), \
+                                               3, \
+                                               len(Postings.encode([3,4,5])), \
+                                               len(Postings.encode_tf([34,23,56])))}, "postings dictionary salah"
+            
+            index.index_file.seek(index.postings_dict[2][0])
+            assert Postings.decode(index.index_file.read(len(Postings.encode([3,4,5])))) == [3,4,5], "terdapat kesalahan"
+            assert Postings.decode_tf(index.index_file.read(len(Postings.encode_tf([34,23,56])))) == [34,23,56], "terdapat kesalahan"
