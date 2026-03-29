@@ -69,3 +69,21 @@ Pre-computation and storage:
 Retrieval:
 - Implemented `retrieve_bm25(...)` in `bsbi.py` using Term-at-a-Time scoring.
 - It reads `doc_length` and `avg_doc_length` from the index metadata, computes IDF from `postings_dict`, and scores each document.
+
+# Answer Q3 - Additional Evaluation Metrics
+
+## Metrics
+I added three evaluation metrics:
+
+- **DCG (Discounted Cumulative Gain)**: accumulates relevance with a log-based discount for lower ranks.
+- **NDCG (Normalized DCG)**: DCG normalized by the ideal DCG (IDCG) for the same ranking length.
+- **AP (Average Precision)**: mean of precision values at ranks where relevant documents appear.
+
+## Implementation in This Codebase
+All three are implemented in `evaluation.py`:
+
+- `dcg(ranking)` computes DCG over a binary relevance list.
+- `ndcg(ranking)` computes DCG and normalizes it by the ideal ranking.
+- `ap(ranking, total_relevant)` computes average precision given the number of relevant docs.
+
+The `eval(...)` function now collects and prints mean scores for RBP, DCG, NDCG, and AP across all queries.
