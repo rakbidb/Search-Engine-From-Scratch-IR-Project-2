@@ -87,3 +87,27 @@ All three are implemented in `evaluation.py`:
 - `ap(ranking, total_relevant)` computes average precision given the number of relevant docs.
 
 The `eval(...)` function now collects and prints mean scores for RBP, DCG, NDCG, and AP across all queries.
+
+# Answer Q4 - WAND Top-K Retrieval
+
+## Algorithm
+I implemented **WAND (Weak AND)** to retrieve Top‑K results without scoring every document.
+WAND maintains a min‑heap of the current Top‑K results (threshold `theta`). It uses an **upper bound score** per term to decide a pivot document. Only when the sum of upper bounds can exceed `theta` does it compute the exact BM25 score for that pivot; otherwise it skips ahead.
+
+## Index Changes
+To support efficient upper bounds for BM25, the inverted index metadata was extended:
+
+- `postings_dict` now stores `max_tf` per term (maximum TF in the postings list).
+- The index metadata now also stores `min_doc_length` (minimum document length).
+
+These are used to compute a conservative upper bound for BM25:
+
+```
+UB_t = IDF(t) * (max_tf * (k1 + 1)) / (max_tf + k1 * (1 - b + b * (min_dl / avgdl)))
+```
+
+## Implementation in This Codebase
+- `retrieve_bm25_wand(...)` is implemented in `bsbi.py`.
+- It uses `postings_dict` + `doc_length` + `avg_doc_length` + `min_doc_length` to compute term upper bounds, select the pivot doc, and score only candidates that can beat `theta`.
+
+Note: to get the tightest upper bounds, the index should be rebuilt so that `max_tf` is stored in `postings_dict`.
