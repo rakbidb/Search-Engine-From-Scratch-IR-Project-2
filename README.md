@@ -24,11 +24,7 @@
 # Answer Q1 - Bit-Level Compression
 
 ## Algorithm
-<<<<<<< HEAD
-I added **Elias-Gamma coding** (bit-level). Elias-Gamma represents integers >= 1 as:
-=======
 I added **Elias-Gamma** (bit-level). Elias-Gamma represents integers >= 1 as:
->>>>>>> aa213ff7385189445dc58a93513e24010324107c
 
 - Prefix: unary of (binary length - 1) as a run of `0` bits ending with `1`
 - Suffix: the remaining binary bits without the leading `1`
@@ -37,14 +33,9 @@ Example: 13 (binary `1101`) has length 4, so prefix `0001` and suffix `101` -> `
 
 Because Elias-Gamma only supports integers >= 1, all numbers are offset by `+1` during encoding and `-1` during decoding.
 
-<<<<<<< HEAD
 ## Implementation in This Codebase
 The implementation lives in `compression.py` as `EliasGammaPostings`:
 
-=======
-## Implementation
-The implementation lives in `compression.py` as `EliasGammaPostings`:
->>>>>>> aa213ff7385189445dc58a93513e24010324107c
 - **Postings list**: converted to a gap-based list (like VBE), then each gap is offset `+1` and encoded with Elias-Gamma.
 - **TF list**: each TF is offset `+1` and encoded with Elias-Gamma.
 - **Decode**: bytestream -> bits -> numbers, then offset `-1`, and for postings the gaps are accumulated back to the original docIDs.
