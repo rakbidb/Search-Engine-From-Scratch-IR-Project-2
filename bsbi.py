@@ -250,6 +250,155 @@ class BSBIIndex:
             docs = [(score, self.doc_id_map[doc_id]) for (doc_id, score) in scores.items()]
             return sorted(docs, key = lambda x: x[0], reverse = True)[:k]
 
+    def retrieve_bm25(self, query, k = 10, k1 = 1.2, b = 0.75):
+        """
+        Ranked Retrieval dengan BM25 (Term-at-a-Time).
+
+        Score = sum_{t in Q} IDF(t) * ((tf * (k1 + 1)) /
+                                       (tf + k1 * (1 - b + b * (dl / avgdl))))
+
+        IDF(t) = log((N - df + 0.5) / (df + 0.5))
+
+        Parameters
+        ----------
+        query: str
+            Query tokens dipisahkan spasi
+        k: int
+            Top-K hasil
+        k1: float
+            Parameter BM25
+        b: float
+            Parameter BM25
+        """
+        if len(self.term_id_map) == 0 or len(self.doc_id_map) == 0:
+            self.load()
+
+        terms = [self.term_id_map[word] for word in query.split()]
+        with InvertedIndexReader(self.index_name, self.postings_encoding, directory=self.output_dir) as merged_index:
+
+            N = len(merged_index.doc_length)
+            avgdl = merged_index.avg_doc_length if N > 0 else 0.0
+
+            scores = {}
+            for term in terms:
+                if term in merged_index.postings_dict:
+                    df = merged_index.postings_dict[term][1]
+                    idf = math.log((N - df + 0.5) / (df + 0.5)) if N > 0 else 0.0
+                    postings, tf_list = merged_index.get_postings_list(term)
+                    for i in range(len(postings)):
+                        doc_id, tf = postings[i], tf_list[i]
+                        dl = merged_index.doc_length.get(doc_id, 0)
+                        denom = tf + k1 * (1 - b + b * (dl / avgdl)) if avgdl > 0 else tf + k1
+                        score = idf * ((tf * (k1 + 1)) / denom) if denom != 0 else 0.0
+                        if doc_id not in scores:
+                            scores[doc_id] = 0.0
+                        scores[doc_id] += score
+
+            docs = [(score, self.doc_id_map[doc_id]) for (doc_id, score) in scores.items()]
+            return sorted(docs, key = lambda x: x[0], reverse = True)[:k]
+
+    def retrieve_bm25_wand(self, query, k = 10, k1 = 1.2, b = 0.75):
+        """
+        WAND Top-K Retrieval untuk BM25 agar tidak menghitung skor semua dokumen.
+        """
+        if len(self.term_id_map) == 0 or len(self.doc_id_map) == 0:
+            self.load()
+
+        terms = [self.term_id_map[word] for word in query.split()]
+        with InvertedIndexReader(self.index_name, self.postings_encoding, directory=self.output_dir) as merged_index:
+            N = len(merged_index.doc_length)
+            avgdl = merged_index.avg_doc_length if N > 0 else 0.0
+            mindl = merged_index.min_doc_length if N > 0 else 0
+
+            term_data = []
+            for term in terms:
+                if term in merged_index.postings_dict:
+                    df = merged_index.postings_dict[term][1]
+                    idf = math.log((N - df + 0.5) / (df + 0.5)) if N > 0 else 0.0
+                    postings, tf_list = merged_index.get_postings_list(term)
+
+                    meta = merged_index.postings_dict[term]
+                    max_tf = meta[4] if len(meta) > 4 else (max(tf_list) if len(tf_list) > 0 else 0)
+                    if avgdl > 0:
+                        denom = max_tf + k1 * (1 - b + b * (mindl / avgdl))
+                    else:
+                        denom = max_tf + k1
+                    ub = idf * ((max_tf * (k1 + 1)) / denom) if denom != 0 else 0.0
+
+                    term_data.append({
+                        "term": term,
+                        "postings": postings,
+                        "tfs": tf_list,
+                        "idx": 0,
+                        "idf": idf,
+                        "ub": ub
+                    })
+
+            # Top-K heap (min-heap by score)
+            heap = []
+            theta = 0.0
+
+            while True:
+                active = [t for t in term_data if t["idx"] < len(t["postings"])]
+                if not active:
+                    break
+
+                # sort by current docID
+                active.sort(key = lambda t: t["postings"][t["idx"]])
+
+                # find pivot
+                ub_sum = 0.0
+                pivot_idx = -1
+                pivot_doc = None
+                for i, t in enumerate(active):
+                    ub_sum += t["ub"]
+                    if ub_sum > theta:
+                        pivot_idx = i
+                        pivot_doc = t["postings"][t["idx"]]
+                        break
+
+                if pivot_idx == -1:
+                    break  # no candidate can beat theta
+
+                # advance pointers in pivot set to at least pivot_doc
+                for t in active[:pivot_idx + 1]:
+                    while t["idx"] < len(t["postings"]) and t["postings"][t["idx"]] < pivot_doc:
+                        t["idx"] += 1
+
+                # check if all in pivot set match pivot_doc
+                all_match = True
+                for t in active[:pivot_idx + 1]:
+                    if t["idx"] >= len(t["postings"]) or t["postings"][t["idx"]] != pivot_doc:
+                        all_match = False
+                        break
+
+                if not all_match:
+                    continue
+
+                # compute exact BM25 score for pivot_doc
+                dl = merged_index.doc_length.get(pivot_doc, 0)
+                score = 0.0
+                for t in active:
+                    if t["idx"] < len(t["postings"]) and t["postings"][t["idx"]] == pivot_doc:
+                        tf = t["tfs"][t["idx"]]
+                        if avgdl > 0:
+                            denom = tf + k1 * (1 - b + b * (dl / avgdl))
+                        else:
+                            denom = tf + k1
+                        if denom != 0:
+                            score += t["idf"] * ((tf * (k1 + 1)) / denom)
+                        t["idx"] += 1  # advance past pivot_doc
+
+                if len(heap) < k:
+                    heapq.heappush(heap, (score, pivot_doc))
+                elif score > heap[0][0]:
+                    heapq.heapreplace(heap, (score, pivot_doc))
+                theta = heap[0][0] if len(heap) == k else 0.0
+
+            # prepare results sorted by score desc
+            docs = [(score, self.doc_id_map[doc_id]) for (score, doc_id) in heap]
+            return sorted(docs, key = lambda x: x[0], reverse = True)[:k]
+
     def index(self):
         """
         Base indexing code
