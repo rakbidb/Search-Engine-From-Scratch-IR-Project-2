@@ -63,6 +63,56 @@ class IdMap:
         else:
             raise TypeError
 
+
+class TrieNode:
+    """
+    Node untuk Trie. Menyimpan children dan id jika node ini
+    menandai akhir term.
+    """
+    __slots__ = ("children", "term_id", "is_terminal")
+
+    def __init__(self):
+        self.children = {}
+        self.term_id = -1
+        self.is_terminal = False
+
+
+class TrieIdMap:
+    """
+    Alternatif IdMap berbasis Trie untuk mapping term -> id.
+    Mapping id -> term tetap disimpan di list untuk akses O(1).
+    """
+
+    def __init__(self):
+        self.root = TrieNode()
+        self.id_to_str = []
+
+    def __len__(self):
+        return len(self.id_to_str)
+
+    def __get_str(self, i):
+        return self.id_to_str[i]
+
+    def __get_id(self, s):
+        node = self.root
+        for ch in s:
+            if ch not in node.children:
+                node.children[ch] = TrieNode()
+            node = node.children[ch]
+        if not node.is_terminal:
+            node.is_terminal = True
+            node.term_id = len(self.id_to_str)
+            self.id_to_str.append(s)
+        return node.term_id
+
+    def __getitem__(self, key):
+        if type(key) is int:
+            return self.__get_str(key)
+        elif type(key) is str:
+            return self.__get_id(key)
+        else:
+            raise TypeError
+
 def sorted_merge_posts_and_tfs(posts_tfs1, posts_tfs2):
     """
     Menggabung (merge) dua lists of tuples (doc id, tf) dan mengembalikan

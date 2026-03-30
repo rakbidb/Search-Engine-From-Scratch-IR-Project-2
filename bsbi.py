@@ -6,7 +6,7 @@ import time
 import math
 
 from index import InvertedIndexReader, InvertedIndexWriter
-from util import IdMap, sorted_merge_posts_and_tfs
+from util import IdMap, TrieIdMap, sorted_merge_posts_and_tfs
 from compression import StandardPostings, VBEPostings
 from tqdm import tqdm
 
@@ -23,13 +23,14 @@ class BSBIIndex:
                     VBEPostings, dsb.
     index_name(str): Nama dari file yang berisi inverted index
     """
-    def __init__(self, data_dir, output_dir, postings_encoding, index_name = "main_index"):
-        self.term_id_map = IdMap()
+    def __init__(self, data_dir, output_dir, postings_encoding, index_name = "main_index", use_trie = False):
+        self.term_id_map = TrieIdMap() if use_trie else IdMap()
         self.doc_id_map = IdMap()
         self.data_dir = data_dir
         self.output_dir = output_dir
         self.index_name = index_name
         self.postings_encoding = postings_encoding
+        self.use_trie = use_trie
 
         # Untuk menyimpan nama-nama file dari semua intermediate inverted index
         self.intermediate_indices = []
@@ -125,6 +126,32 @@ class BSBIIndex:
             if doc_id not in term_tf[term_id]:
                 term_tf[term_id][doc_id] = 0
             term_tf[term_id][doc_id] += 1
+        for term_id in sorted(term_dict.keys()):
+            sorted_doc_id = sorted(list(term_dict[term_id]))
+            assoc_tf = [term_tf[term_id][doc_id] for doc_id in sorted_doc_id]
+            index.append(term_id, sorted_doc_id, assoc_tf)
+
+    def invert_write_spimi(self, block_dir_relative, index):
+        """
+        SPIMI: langsung membangun dictionary postings di memori tanpa membuat td_pairs list.
+        """
+        dir = "./" + self.data_dir + "/" + block_dir_relative
+        term_dict = {}
+        term_tf = {}
+        for filename in next(os.walk(dir))[2]:
+            docname = dir + "/" + filename
+            doc_id = self.doc_id_map[docname]
+            with open(docname, "r", encoding = "utf8", errors = "surrogateescape") as f:
+                for token in f.read().split():
+                    term_id = self.term_id_map[token]
+                    if term_id not in term_dict:
+                        term_dict[term_id] = set()
+                        term_tf[term_id] = {}
+                    term_dict[term_id].add(doc_id)
+                    if doc_id not in term_tf[term_id]:
+                        term_tf[term_id][doc_id] = 0
+                    term_tf[term_id][doc_id] += 1
+
         for term_id in sorted(term_dict.keys()):
             sorted_doc_id = sorted(list(term_dict[term_id]))
             assoc_tf = [term_tf[term_id][doc_id] for doc_id in sorted_doc_id]
@@ -241,6 +268,25 @@ class BSBIIndex:
             with InvertedIndexWriter(index_id, self.postings_encoding, directory = self.output_dir) as index:
                 self.invert_write(td_pairs, index)
                 td_pairs = None
+    
+        self.save()
+
+        with InvertedIndexWriter(self.index_name, self.postings_encoding, directory = self.output_dir) as merged_index:
+            with contextlib.ExitStack() as stack:
+                indices = [stack.enter_context(InvertedIndexReader(index_id, self.postings_encoding, directory=self.output_dir))
+                               for index_id in self.intermediate_indices]
+                self.merge(indices, merged_index)
+
+    def index_spimi(self):
+        """
+        Indexing dengan mode SPIMI (Single-Pass In-Memory Indexing).
+        Tidak membuat td_pairs list; langsung membangun dictionary postings per block.
+        """
+        for block_dir_relative in tqdm(sorted(next(os.walk(self.data_dir))[1])):
+            index_id = 'intermediate_index_'+block_dir_relative
+            self.intermediate_indices.append(index_id)
+            with InvertedIndexWriter(index_id, self.postings_encoding, directory = self.output_dir) as index:
+                self.invert_write_spimi(block_dir_relative, index)
     
         self.save()
 
